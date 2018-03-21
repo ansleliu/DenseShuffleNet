@@ -1,0 +1,1167 @@
+#################### dpn25 ####################
+layer {
+  name: "dpn25_concat_input"
+  type: "Concat"
+
+  bottom: "dpn24_elewise"
+  bottom: "dpn24_concat"
+  top: "dpn25_concat_input"
+}
+
+
+layer {
+  name: "dpn25_relu"
+  type: "ReLU"
+
+  bottom: "dpn25_concat_input"
+  top: "dpn25_concat_input"
+}
+layer {
+  name: "dpn25_conv1"
+  type: "Convolution"
+
+  bottom: "dpn25_concat_input"
+  top: "dpn25_conv1"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn25_conv1_relu"
+  type: "ReLU"
+
+  bottom: "dpn25_conv1"
+  top: "dpn25_conv1"
+}
+
+# ------------------------- Channel Shuffle Start
+layer {
+  name: "dpn25_shuffle"
+  type: "ShuffleChannel"
+
+  bottom: "dpn25_conv1"
+  top: "dpn25_conv1"
+
+  shuffle_channel_param {
+    group: 4
+  }
+}
+# ------------------------- Channel Shuffle End
+
+layer {
+  name: "dpn25_conv2"
+  type: "ConvolutionDepthwise"
+
+  bottom: "dpn25_conv1"
+  top: "dpn25_conv2"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 3
+    pad: 2
+    stride: 1
+    dilation: 2
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn25_conv2_relu"
+  type: "ReLU"
+
+  bottom: "dpn25_conv2"
+  top: "dpn25_conv2"
+}
+
+
+layer {
+  name: "dpn25_conv3"
+  type: "Convolution"
+
+  bottom: "dpn25_conv2"
+  top: "dpn25_conv3"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 1056
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+
+# -------------------- SE Block Start
+layer {
+  name: "dpn25_pool/gap"
+  type: "Pooling"
+
+  bottom: "dpn25_conv3"
+  top: "dpn25_pool/gap"
+
+  pooling_param {
+    pool: AVE
+    global_pooling: true
+  }
+}
+layer {
+  name: "dpn25_fc1/sqz"
+  type: "InnerProduct"
+
+  bottom: "dpn25_pool/gap"
+  top: "dpn25_fc1/sqz"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+  inner_product_param {
+    num_output: 66       # 1056/16
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn25_relu/sqz"
+  type: "ReLU"
+
+  bottom: "dpn25_fc1/sqz"
+  top: "dpn25_fc1/sqz"
+}
+layer {
+  name: "dpn25_fc2/exc"
+  type: "InnerProduct"
+
+  bottom: "dpn25_fc1/sqz"
+  top: "dpn25_fc2/exc"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  inner_product_param {
+    num_output: 1056
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn25_sigm/gate"
+  type: "Sigmoid"
+  bottom: "dpn25_fc2/exc"
+  top: "dpn25_fc2/exc"
+}
+layer {
+  name: "dpn25_scale/se"
+  type: "Scale"
+
+  bottom: "dpn25_conv3"
+  bottom: "dpn25_fc2/exc"
+  top: "dpn25_scale/se"
+
+  scale_param {
+        axis: 0
+    bias_term: false
+  }
+}
+layer {
+  name: "dpn25_conv3_relu"
+  type: "ReLU"
+
+  bottom: "dpn25_scale/se"
+  top: "dpn25_scale/se"
+}
+# ------------------------- SE Block End
+
+
+layer {
+  name: "dpn25_conv3_Slice"
+  type: "Slice"
+
+  bottom: "dpn25_scale/se"
+  top: "dpn25_conv3_split1"  # 0~1023
+  top: "dpn25_conv3_split2"  # 1024~1055
+
+  slice_param {
+    axis: 1
+    slice_point: 1024
+  }
+}
+layer {
+  name: "dpn25_elewise"
+  type: "Eltwise"
+
+  bottom: "dpn24_elewise"
+  bottom: "dpn25_conv3_split1"
+  top: "dpn25_elewise"
+
+  eltwise_param {
+    operation: SUM
+  }
+}
+layer {
+  name: "dpn25_concat"
+  type: "Concat"
+
+  bottom: "dpn24_concat"
+  bottom: "dpn25_conv3_split2"
+  top: "dpn25_concat"
+}
+
+
+#################### dpn26 ####################
+layer {
+  name: "dpn26_concat_input"
+  type: "Concat"
+
+  bottom: "dpn25_elewise"
+  bottom: "dpn25_concat"
+  top: "dpn26_concat_input"
+}
+
+
+layer {
+  name: "dpn26_relu"
+  type: "ReLU"
+
+  bottom: "dpn26_concat_input"
+  top: "dpn26_concat_input"
+}
+layer {
+  name: "dpn26_conv1"
+  type: "Convolution"
+
+  bottom: "dpn26_concat_input"
+  top: "dpn26_conv1"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn26_conv1_relu"
+  type: "ReLU"
+
+  bottom: "dpn26_conv1"
+  top: "dpn26_conv1"
+}
+
+# ------------------------- Channel Shuffle Start
+layer {
+  name: "dpn26_shuffle"
+  type: "ShuffleChannel"
+
+  bottom: "dpn26_conv1"
+  top: "dpn26_conv1"
+
+  shuffle_channel_param {
+    group: 4
+  }
+}
+# ------------------------- Channel Shuffle End
+
+layer {
+  name: "dpn26_conv2"
+  type: "ConvolutionDepthwise"
+
+  bottom: "dpn26_conv1"
+  top: "dpn26_conv2"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 3
+    pad: 2
+    stride: 1
+    dilation: 2
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn26_conv2_relu"
+  type: "ReLU"
+
+  bottom: "dpn26_conv2"
+  top: "dpn26_conv2"
+}
+
+
+layer {
+  name: "dpn26_conv3"
+  type: "Convolution"
+
+  bottom: "dpn26_conv2"
+  top: "dpn26_conv3"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 1056
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+
+# -------------------- SE Block Start
+layer {
+  name: "dpn26_pool/gap"
+  type: "Pooling"
+
+  bottom: "dpn26_conv3"
+  top: "dpn26_pool/gap"
+
+  pooling_param {
+    pool: AVE
+    global_pooling: true
+  }
+}
+layer {
+  name: "dpn26_fc1/sqz"
+  type: "InnerProduct"
+
+  bottom: "dpn26_pool/gap"
+  top: "dpn26_fc1/sqz"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+  inner_product_param {
+    num_output: 66       # 1056/16
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn26_relu/sqz"
+  type: "ReLU"
+
+  bottom: "dpn26_fc1/sqz"
+  top: "dpn26_fc1/sqz"
+}
+layer {
+  name: "dpn26_fc2/exc"
+  type: "InnerProduct"
+
+  bottom: "dpn26_fc1/sqz"
+  top: "dpn26_fc2/exc"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  inner_product_param {
+    num_output: 1056
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn26_sigm/gate"
+  type: "Sigmoid"
+  bottom: "dpn26_fc2/exc"
+  top: "dpn26_fc2/exc"
+}
+layer {
+  name: "dpn26_scale/se"
+  type: "Scale"
+
+  bottom: "dpn26_conv3"
+  bottom: "dpn26_fc2/exc"
+  top: "dpn26_scale/se"
+
+  scale_param {
+        axis: 0
+    bias_term: false
+  }
+}
+layer {
+  name: "dpn26_conv3_relu"
+  type: "ReLU"
+
+  bottom: "dpn26_scale/se"
+  top: "dpn26_scale/se"
+}
+# ------------------------- SE Block End
+
+
+layer {
+  name: "dpn26_conv3_Slice"
+  type: "Slice"
+
+  bottom: "dpn26_scale/se"
+  top: "dpn26_conv3_split1"  # 0~1023
+  top: "dpn26_conv3_split2"  # 1024~1055
+
+  slice_param {
+    axis: 1
+    slice_point: 1024
+  }
+}
+layer {
+  name: "dpn26_elewise"
+  type: "Eltwise"
+
+  bottom: "dpn25_elewise"
+  bottom: "dpn26_conv3_split1"
+  top: "dpn26_elewise"
+
+  eltwise_param {
+    operation: SUM
+  }
+}
+layer {
+  name: "dpn26_concat"
+  type: "Concat"
+
+  bottom: "dpn25_concat"
+  bottom: "dpn26_conv3_split2"
+  top: "dpn26_concat"
+}
+
+
+#################### dpn27 ####################
+layer {
+  name: "dpn27_concat_input"
+  type: "Concat"
+
+  bottom: "dpn26_elewise"
+  bottom: "dpn26_concat"
+  top: "dpn27_concat_input"
+}
+
+
+layer {
+  name: "dpn27_relu"
+  type: "ReLU"
+
+  bottom: "dpn27_concat_input"
+  top: "dpn27_concat_input"
+}
+layer {
+  name: "dpn27_conv1"
+  type: "Convolution"
+
+  bottom: "dpn27_concat_input"
+  top: "dpn27_conv1"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn27_conv1_relu"
+  type: "ReLU"
+
+  bottom: "dpn27_conv1"
+  top: "dpn27_conv1"
+}
+
+# ------------------------- Channel Shuffle Start
+layer {
+  name: "dpn27_shuffle"
+  type: "ShuffleChannel"
+
+  bottom: "dpn27_conv1"
+  top: "dpn27_conv1"
+
+  shuffle_channel_param {
+    group: 4
+  }
+}
+# ------------------------- Channel Shuffle End
+
+layer {
+  name: "dpn27_conv2"
+  type: "ConvolutionDepthwise"
+
+  bottom: "dpn27_conv1"
+  top: "dpn27_conv2"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 3
+    pad: 2
+    stride: 1
+    dilation: 2
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn27_conv2_relu"
+  type: "ReLU"
+
+  bottom: "dpn27_conv2"
+  top: "dpn27_conv2"
+}
+
+
+layer {
+  name: "dpn27_conv3"
+  type: "Convolution"
+
+  bottom: "dpn27_conv2"
+  top: "dpn27_conv3"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 1056
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+
+# -------------------- SE Block Start
+layer {
+  name: "dpn27_pool/gap"
+  type: "Pooling"
+
+  bottom: "dpn27_conv3"
+  top: "dpn27_pool/gap"
+
+  pooling_param {
+    pool: AVE
+    global_pooling: true
+  }
+}
+layer {
+  name: "dpn27_fc1/sqz"
+  type: "InnerProduct"
+
+  bottom: "dpn27_pool/gap"
+  top: "dpn27_fc1/sqz"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+  inner_product_param {
+    num_output: 66       # 1056/16
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn27_relu/sqz"
+  type: "ReLU"
+
+  bottom: "dpn27_fc1/sqz"
+  top: "dpn27_fc1/sqz"
+}
+layer {
+  name: "dpn27_fc2/exc"
+  type: "InnerProduct"
+
+  bottom: "dpn27_fc1/sqz"
+  top: "dpn27_fc2/exc"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  inner_product_param {
+    num_output: 1056
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn27_sigm/gate"
+  type: "Sigmoid"
+  bottom: "dpn27_fc2/exc"
+  top: "dpn27_fc2/exc"
+}
+layer {
+  name: "dpn27_scale/se"
+  type: "Scale"
+
+  bottom: "dpn27_conv3"
+  bottom: "dpn27_fc2/exc"
+  top: "dpn27_scale/se"
+
+  scale_param {
+        axis: 0
+    bias_term: false
+  }
+}
+layer {
+  name: "dpn27_conv3_relu"
+  type: "ReLU"
+
+  bottom: "dpn27_scale/se"
+  top: "dpn27_scale/se"
+}
+# ------------------------- SE Block End
+
+
+layer {
+  name: "dpn27_conv3_Slice"
+  type: "Slice"
+
+  bottom: "dpn27_scale/se"
+  top: "dpn27_conv3_split1"  # 0~1023
+  top: "dpn27_conv3_split2"  # 1024~1055
+
+  slice_param {
+    axis: 1
+    slice_point: 1024
+  }
+}
+layer {
+  name: "dpn27_elewise"
+  type: "Eltwise"
+
+  bottom: "dpn26_elewise"
+  bottom: "dpn27_conv3_split1"
+  top: "dpn27_elewise"
+
+  eltwise_param {
+    operation: SUM
+  }
+}
+layer {
+  name: "dpn27_concat"
+  type: "Concat"
+
+  bottom: "dpn26_concat"
+  bottom: "dpn27_conv3_split2"
+  top: "dpn27_concat"
+}
+
+
+#################### dpn28 ####################
+layer {
+  name: "dpn28_concat_input"
+  type: "Concat"
+
+  bottom: "dpn27_elewise"
+  bottom: "dpn27_concat"
+  top: "dpn28_concat_input"
+}
+
+
+layer {
+  name: "dpn28_relu"
+  type: "ReLU"
+
+  bottom: "dpn28_concat_input"
+  top: "dpn28_concat_input"
+}
+layer {
+  name: "dpn28_conv1"
+  type: "Convolution"
+
+  bottom: "dpn28_concat_input"
+  top: "dpn28_conv1"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn28_conv1_relu"
+  type: "ReLU"
+
+  bottom: "dpn28_conv1"
+  top: "dpn28_conv1"
+}
+
+# ------------------------- Channel Shuffle Start
+layer {
+  name: "dpn28_shuffle"
+  type: "ShuffleChannel"
+
+  bottom: "dpn28_conv1"
+  top: "dpn28_conv1"
+
+  shuffle_channel_param {
+    group: 4
+  }
+}
+# ------------------------- Channel Shuffle End
+
+layer {
+  name: "dpn28_conv2"
+  type: "ConvolutionDepthwise"
+
+  bottom: "dpn28_conv1"
+  top: "dpn28_conv2"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 640
+
+    kernel_size: 3
+    pad: 2
+    stride: 1
+    dilation: 2
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+layer {
+  name: "dpn28_conv2_relu"
+  type: "ReLU"
+
+  bottom: "dpn28_conv2"
+  top: "dpn28_conv2"
+}
+
+
+layer {
+  name: "dpn28_conv3"
+  type: "Convolution"
+
+  bottom: "dpn28_conv2"
+  top: "dpn28_conv3"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  convolution_param {
+    num_output: 1056
+
+    kernel_size: 1
+    pad: 0
+    stride: 1
+    # dilation: 1
+
+    group: 4
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant" # initialize the biases to zero (0)
+      value: 0
+    }
+  }
+}
+
+# -------------------- SE Block Start
+layer {
+  name: "dpn28_pool/gap"
+  type: "Pooling"
+
+  bottom: "dpn28_conv3"
+  top: "dpn28_pool/gap"
+
+  pooling_param {
+    pool: AVE
+    global_pooling: true
+  }
+}
+layer {
+  name: "dpn28_fc1/sqz"
+  type: "InnerProduct"
+
+  bottom: "dpn28_pool/gap"
+  top: "dpn28_fc1/sqz"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+  inner_product_param {
+    num_output: 66       # 1056/16
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn28_relu/sqz"
+  type: "ReLU"
+
+  bottom: "dpn28_fc1/sqz"
+  top: "dpn28_fc1/sqz"
+}
+layer {
+  name: "dpn28_fc2/exc"
+  type: "InnerProduct"
+
+  bottom: "dpn28_fc1/sqz"
+  top: "dpn28_fc2/exc"
+
+  param {
+    lr_mult: 1.0
+    decay_mult: 1.0
+  }
+  param {
+    lr_mult: 2.0
+    decay_mult: 0.0
+  }
+
+  inner_product_param {
+    num_output: 1056
+
+    weight_filler {
+      type: "msra"
+    }
+    bias_filler {
+      type: "constant"
+      value: 0.0
+    }
+  }
+}
+layer {
+  name: "dpn28_sigm/gate"
+  type: "Sigmoid"
+  bottom: "dpn28_fc2/exc"
+  top: "dpn28_fc2/exc"
+}
+layer {
+  name: "dpn28_scale/se"
+  type: "Scale"
+
+  bottom: "dpn28_conv3"
+  bottom: "dpn28_fc2/exc"
+  top: "dpn28_scale/se"
+
+  scale_param {
+        axis: 0
+    bias_term: false
+  }
+}
+layer {
+  name: "dpn28_conv3_relu"
+  type: "ReLU"
+
+  bottom: "dpn28_scale/se"
+  top: "dpn28_scale/se"
+}
+# ------------------------- SE Block End
+
+
+layer {
+  name: "dpn28_conv3_Slice"
+  type: "Slice"
+
+  bottom: "dpn28_scale/se"
+  top: "dpn28_conv3_split1"  # 0~1023
+  top: "dpn28_conv3_split2"  # 1024~1055
+
+  slice_param {
+    axis: 1
+    slice_point: 1024
+  }
+}
+layer {
+  name: "dpn28_elewise"
+  type: "Eltwise"
+
+  bottom: "dpn27_elewise"
+  bottom: "dpn28_conv3_split1"
+  top: "dpn28_elewise"
+
+  eltwise_param {
+    operation: SUM
+  }
+}
+layer {
+  name: "dpn28_concat"
+  type: "Concat"
+
+  bottom: "dpn27_concat"
+  bottom: "dpn28_conv3_split2"
+  top: "dpn28_concat"
+}

@@ -1,0 +1,28 @@
+net: "/home/huijun/DenseShuffleNet/models/SE-DPShuffleNet_V1_train.prototxt"
+
+type: "Nesterov"  # Nesterov
+
+# test_iter: 1000          # 1346*batch_size(here 2) = 2692 images total:2693
+# test_interval: 200       # Carry out testing every 1000 training iterations
+
+base_lr: 1e-3
+momentum: 0.9
+# momentum2: 0.999
+
+# lr_policy: "fixed"       # Since Adam dynamically change the learning rate, we set the base lr to a fixed value
+lr_policy: "step"
+gamma: 0.1
+stepsize: 10000  # 3*8=24 epoch
+
+iter_size: 20  #2*17=34
+
+average_loss: 10         # Display the loss averaged over the last average_loss iterations
+display: 10              # Display training Info every 10 iterations
+max_iter: 600000         # The maximum number of iterations
+
+weight_decay: 0.0005
+clip_gradients: 1e4
+
+snapshot: 1000           # Snapshot intermediate results (every 1000 iterations)
+snapshot_prefix: "/home/huijun/DenseShuffleNet/weights/se-dpshufflenet-v1"
+solver_mode: GPU
